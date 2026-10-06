@@ -1,0 +1,11 @@
+{
+    "bot_name": "Telegram Lead Bot",
+    "admin_id": 123456789,
+    "welcome_message": "Здравствуйте! Оставьте заявку.",
+    "services": [
+        "Telegram-бот",
+        "AI-бот",
+        "Автоматизация",
+        "CRM-интеграция"
+    ]
+}
