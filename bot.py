@@ -1,36 +1,32 @@
 import asyncio
-import os
+import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.filters import CommandStart
-from aiogram.types import Message
-from dotenv import load_dotenv
 
-from config import load_config
+from config import get_bot_token
+from handlers.lead import router
 
 
-load_dotenv()
+async def main() -> None:
+    """Создаёт приложение бота, подключает обработчики и запускает polling."""
+    bot = Bot(token=get_bot_token())
+    dp = Dispatcher()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+    # Dispatcher — главный объект обработки событий.
+    # В него подключаем Router с логикой нашего Lead Bot.
+    dp.include_router(router)
 
-config = load_config()
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-
-@dp.message(CommandStart())
-async def start_handler(message: Message):
-    await message.answer(config["welcome_message"])
-
-
-async def main():
+    # Получаем информацию о боте, чтобы убедиться, что токен рабочий.
     me = await bot.get_me()
 
     print(f"Бот запущен: @{me.username}")
 
+    # Запускаем получение новых сообщений от Telegram.
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
+    # Включаем базовое логирование aiogram.
+    logging.basicConfig(level=logging.INFO)
+
     asyncio.run(main())
