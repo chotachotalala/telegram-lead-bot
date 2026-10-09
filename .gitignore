@@ -2,3 +2,5 @@
 .env
 __pycache__/
 *.pyc
+leads.json
+leads.json.tmp

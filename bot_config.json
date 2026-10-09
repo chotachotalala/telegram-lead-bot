@@ -1,6 +1,6 @@
 {
   "bot_name": "Telegram Lead Bot",
-  "admin_id": 123456789,
+  "admin_id": 5212907829,
   "welcome_message": "Здравствуйте! Выберите услугу:",
   "services": [
     "Telegram-бот",
