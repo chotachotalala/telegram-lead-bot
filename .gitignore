@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 leads.json
 leads.json.tmp
+leads.db
+leads.db-shm
+leads.db-wal
+leads.db-journal
