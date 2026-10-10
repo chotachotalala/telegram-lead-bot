@@ -89,3 +89,30 @@ def save_lead(lead: dict[str, Any]) -> None:
         raise RuntimeError(
             "Не удалось сохранить заявку в базе данных SQLite."
         ) from exc
+
+
+def get_leads() -> list[dict[str, str]]:
+    """Получить сохранённые заявки из базы данных SQLite."""
+
+    # Если базы ещё нет, заявок пока нет.
+    if not DB_PATH.exists():
+        return []
+
+    try:
+        with closing(sqlite3.connect(DB_PATH)) as connection:
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT service, name, contact, created_at
+                FROM leads
+                ORDER BY id DESC
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+    except sqlite3.Error as exc:
+        raise RuntimeError(
+            "Не удалось прочитать заявки из базы данных SQLite."
+        ) from exc
