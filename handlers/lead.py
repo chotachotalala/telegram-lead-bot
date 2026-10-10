@@ -336,8 +336,8 @@ async def confirmation_handler(
         else:
             contact_lines.append(f"Telegram ID: {user_id}")
 
-    # Сохраняем время создания заявки в UTC для файла.
-    # Store the lead creation time in UTC for the data file.
+    # Сохраняем время создания заявки в UTC для базы данных SQLite.
+    # Store the lead creation time in UTC for the SQLite database.
     created_at = datetime.now(timezone.utc)
 
     lead = {
@@ -384,7 +384,7 @@ async def confirmation_handler(
     )
 
     # Отправляем уведомление администратору вместе со ссылкой на профиль.
-    # Send the notification with a link to the client's profile.
+    # Send the notification to the administrator together with a link to the profile.
     try:
         await callback.bot.send_message(
             chat_id=config["admin_id"],
@@ -434,8 +434,8 @@ async def confirmation_cancel_handler(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    # Отменяем заявку без записи в файл.
-    # Cancel the lead without saving it to the file.
+    # Отменяем заявку без сохранения в базе данных.
+    # Cancel the lead without saving it to the database.
     await state.clear()
     await callback.answer("Заявка отменена.")
 
