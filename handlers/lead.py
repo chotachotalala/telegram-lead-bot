@@ -10,12 +10,11 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from storage import get_leads
 
 from config import load_config
 from keyboards.services import services_keyboard
 from states.lead import LeadForm
-from storage import save_lead
+from storage import get_leads, save_lead
 from validators import (
     is_valid_email,
     is_valid_phone,
@@ -25,6 +24,119 @@ from validators import (
 
 logger = logging.getLogger(__name__)
 router = Router(name=__name__)
+
+@router.message(Command("leads"))
+async def cmd_leads(message: Message) -> None:
+    """Показать сохранённые заявки только администратору."""
+
+    user = message.from_user
+
+    if user is None:
+        await message.answer("Не удалось определить пользователя.")
+        return
+
+    # Не допускаем отправку списка заявок в групповые чаты.
+    if message.chat.type != "private":
+        await message.answer(
+            "Команду /leads можно использовать только "
+            "в личном чате с ботом."
+        )
+        return
+
+    # Проверяем конфигурацию перед проверкой прав доступа.
+    try:
+        config = load_config()
+    except (OSError, ValueError, RuntimeError):
+        logger.exception(
+            "Не удалось загрузить конфигурацию для команды /leads."
+        )
+        await message.answer(
+            "Не удалось проверить права доступа. Попробуйте позже."
+        )
+        return
+
+    # Только администратор может просматривать заявки.
+    if user.id != config["admin_id"]:
+        await message.answer("У вас нет доступа к этой команде.")
+        return
+
+    # Читаем базу только после проверки прав доступа.
+    try:
+        leads = get_leads()
+    except RuntimeError:
+        logger.exception(
+            "Не удалось прочитать заявки из базы данных SQLite."
+        )
+        await message.answer(
+            "Не удалось прочитать заявки из базы данных. "
+            "Попробуйте позже."
+        )
+        return
+
+    if not leads:
+        await message.answer("Пока заявок нет.")
+        return
+
+    # Разбиваем список на сообщения допустимой длины.
+    message_limit = 3800
+    continuation_header = "Сохранённые заявки (продолжение):\n\n"
+    max_body_length = message_limit - len(continuation_header)
+
+    chunks: list[str] = []
+    current_entries: list[str] = []
+    current_length = 0
+
+    for lead in leads:
+        lead_text = (
+            f"Заявка №{lead['id']}\n"
+            f"Услуга: {lead['service']}\n"
+            f"Имя: {lead['name']}\n"
+            f"Контакт: {lead['contact']}\n"
+            f"Дата создания: {lead['created_at']}"
+        )
+
+        # Защищаемся от слишком длинной отдельной записи.
+        if len(lead_text) > max_body_length:
+            if current_entries:
+                chunks.append("\n\n".join(current_entries))
+
+            current_entries = []
+            current_length = 0
+
+            for start in range(0, len(lead_text), max_body_length):
+                chunks.append(
+                    lead_text[start:start + max_body_length]
+                )
+            continue
+
+        additional_length = len(lead_text)
+        if current_entries:
+            additional_length += 2
+
+        if (
+            current_entries
+            and current_length + additional_length > max_body_length
+        ):
+            chunks.append("\n\n".join(current_entries))
+            current_entries = []
+            current_length = 0
+
+        if current_entries:
+            current_length += 2
+
+        current_entries.append(lead_text)
+        current_length += len(lead_text)
+
+    if current_entries:
+        chunks.append("\n\n".join(current_entries))
+
+    for index, chunk in enumerate(chunks):
+        if index == 0:
+            header = "Сохранённые заявки:\n\n"
+        else:
+            header = continuation_header
+
+        await message.answer(header + chunk)
 
 
 # Настраиваем московское время и русские названия месяцев.
@@ -445,78 +557,3 @@ async def confirmation_cancel_handler(
             "Заполнение заявки отменено.",
             reply_markup=None,
         )
-
-@router.message(Command("leads"))
-async def cmd_leads(message: Message) -> None:
-    """Показать сохранённые заявки только администратору."""
-
-    user = message.from_user
-
-    if user is None:
-        await message.answer(
-            "Не удалось определить пользователя."
-        )
-        return
-
-    # Загружаем конфигурацию для проверки прав доступа.
-    try:
-        config = load_config()
-    except (OSError, ValueError, RuntimeError):
-        logger.exception(
-            "Не удалось загрузить конфигурацию для команды /leads."
-        )
-        await message.answer(
-            "Не удалось проверить права доступа. Попробуйте позже."
-        )
-        return
-
-    # Не разрешаем посторонним пользователям читать заявки.
-    if user.id != config["admin_id"]:
-        await message.answer(
-            "У вас нет доступа к этой команде."
-        )
-        return
-
-    # Читаем базу только после проверки прав администратора.
-    try:
-        leads = get_leads()
-    except RuntimeError:
-        logger.exception(
-            "Не удалось прочитать заявки из базы данных SQLite."
-        )
-        await message.answer(
-            "Не удалось прочитать заявки из базы данных. "
-            "Попробуйте позже."
-        )
-        return
-
-    if not leads:
-        await message.answer("Пока заявок нет.")
-        return
-
-    # Формируем сообщения, не превышая стандартный лимит Telegram.
-    message_limit = 3800
-    chunks: list[str] = []
-    current_chunk = "Сохранённые заявки:\n\n"
-
-    for lead in leads:
-        lead_text = (
-            f"Заявка №{lead['id']}\n"
-            f"Услуга: {lead['service']}\n"
-            f"Имя: {lead['name']}\n"
-            f"Контакт: {lead['contact']}\n"
-            f"Дата создания: {lead['created_at']}"
-        )
-
-        if len(current_chunk) + len(lead_text) + 2 > message_limit:
-            if current_chunk.strip():
-                chunks.append(current_chunk.rstrip())
-            current_chunk = ""
-
-        current_chunk += lead_text + "\n\n"
-
-    if current_chunk.strip():
-        chunks.append(current_chunk.rstrip())
-
-    for chunk in chunks:
-        await message.answer(chunk)
