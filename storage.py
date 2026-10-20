@@ -91,22 +91,23 @@ def save_lead(lead: dict[str, Any]) -> None:
         ) from exc
 
 
-def get_leads() -> list[dict[str, str]]:
+def get_leads() -> list[dict[str, Any]]:
     """Получить сохранённые заявки из базы данных SQLite."""
 
-    # Если базы ещё нет, заявок пока нет.
+    # Если база ещё не создана, заявок пока нет.
     if not DB_PATH.exists():
         return []
 
     try:
         with closing(sqlite3.connect(DB_PATH)) as connection:
+            # Возвращаем строки SQLite как объекты с доступом по именам полей.
             connection.row_factory = sqlite3.Row
 
             rows = connection.execute(
                 """
-                SELECT service, name, contact, created_at
+                SELECT id, service, name, contact, created_at
                 FROM leads
-                ORDER BY id DESC
+                ORDER BY created_at DESC, id DESC
                 """
             ).fetchall()
 
