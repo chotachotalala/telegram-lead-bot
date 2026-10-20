@@ -10,6 +10,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from storage import get_leads
 
 from config import load_config
 from keyboards.services import services_keyboard
@@ -444,3 +445,26 @@ async def confirmation_cancel_handler(
             "Заполнение заявки отменено.",
             reply_markup=None,
         )
+
+@router.message(Command("leads"))
+async def cmd_leads(message: Message) -> None:
+    """Показать список заявок администратору."""
+
+    # Здесь необходимо проверить, что пользователь — администратор.
+    # Подключи существующую проверку прав из проекта.
+
+    leads = get_leads()
+
+    if not leads:
+        await message.answer("Пока заявок нет.")
+        return
+
+    for lead in leads:
+        text = (
+            f"Заявка №{lead['id']}\n"
+            f"Услуга: {lead['service']}\n"
+            f"Имя: {lead['name']}\n"
+            f"Контакт: {lead['contact']}\n"
+            f"Дата создания: {lead['created_at']}"
+        )
+        await message.answer(text)
