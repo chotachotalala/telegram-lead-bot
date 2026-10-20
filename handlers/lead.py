@@ -448,23 +448,75 @@ async def confirmation_cancel_handler(
 
 @router.message(Command("leads"))
 async def cmd_leads(message: Message) -> None:
-    """Показать список заявок администратору."""
+    """Показать сохранённые заявки только администратору."""
 
-    # Здесь необходимо проверить, что пользователь — администратор.
-    # Подключи существующую проверку прав из проекта.
+    user = message.from_user
 
-    leads = get_leads()
+    if user is None:
+        await message.answer(
+            "Не удалось определить пользователя."
+        )
+        return
+
+    # Загружаем конфигурацию для проверки прав доступа.
+    try:
+        config = load_config()
+    except (OSError, ValueError, RuntimeError):
+        logger.exception(
+            "Не удалось загрузить конфигурацию для команды /leads."
+        )
+        await message.answer(
+            "Не удалось проверить права доступа. Попробуйте позже."
+        )
+        return
+
+    # Не разрешаем посторонним пользователям читать заявки.
+    if user.id != config["admin_id"]:
+        await message.answer(
+            "У вас нет доступа к этой команде."
+        )
+        return
+
+    # Читаем базу только после проверки прав администратора.
+    try:
+        leads = get_leads()
+    except RuntimeError:
+        logger.exception(
+            "Не удалось прочитать заявки из базы данных SQLite."
+        )
+        await message.answer(
+            "Не удалось прочитать заявки из базы данных. "
+            "Попробуйте позже."
+        )
+        return
 
     if not leads:
         await message.answer("Пока заявок нет.")
         return
 
+    # Формируем сообщения, не превышая стандартный лимит Telegram.
+    message_limit = 3800
+    chunks: list[str] = []
+    current_chunk = "Сохранённые заявки:\n\n"
+
     for lead in leads:
-        text = (
+        lead_text = (
             f"Заявка №{lead['id']}\n"
             f"Услуга: {lead['service']}\n"
             f"Имя: {lead['name']}\n"
             f"Контакт: {lead['contact']}\n"
             f"Дата создания: {lead['created_at']}"
         )
-        await message.answer(text)
+
+        if len(current_chunk) + len(lead_text) + 2 > message_limit:
+            if current_chunk.strip():
+                chunks.append(current_chunk.rstrip())
+            current_chunk = ""
+
+        current_chunk += lead_text + "\n\n"
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.rstrip())
+
+    for chunk in chunks:
+        await message.answer(chunk)
