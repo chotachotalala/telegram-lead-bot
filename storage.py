@@ -1,58 +1,52 @@
-"""SQLite storage for confirmed Telegram bot leads."""
+"""Хранение подтверждённых заявок в PostgreSQL."""
 
-import sqlite3
-from contextlib import closing
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import psycopg
+from dotenv import load_dotenv
+from psycopg.rows import dict_row
 
-# Keep the database next to the project's Python files, regardless of CWD.
+
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "leads.db"
-
-CREATE_LEADS_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS leads (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    service TEXT NOT NULL,
-    name TEXT NOT NULL,
-    contact TEXT NOT NULL,
-    user_id INTEGER NOT NULL,
-    telegram_username TEXT DEFAULT NULL,
-    created_at TEXT NOT NULL
-)
-"""
-
-INSERT_LEAD_SQL = """
-INSERT INTO leads (
-    service,
-    name,
-    contact,
-    user_id,
-    telegram_username,
-    created_at
-)
-VALUES (?, ?, ?, ?, ?, ?)
-"""
+load_dotenv(BASE_DIR / ".env")
 
 
-def init_db() -> None:
-    """Create the leads table if it does not exist yet.
+def connect_db() -> psycopg.Connection:
+    """Открыть подключение к PostgreSQL."""
+    required = (
+        "PGHOST",
+        "PGDATABASE",
+        "PGUSER",
+        "PGPASSWORD",
+    )
 
-    SQLite errors are exposed as RuntimeError so the existing confirmation
-    handler can catch the failure and show its save-error message.
-    """
-    try:
-        with closing(sqlite3.connect(DB_PATH)) as connection:
-            with connection:
-                connection.execute(CREATE_LEADS_TABLE_SQL)
-    except sqlite3.Error as exc:
+    missing = [
+        key
+        for key in required
+        if not os.getenv(key)
+    ]
+
+    if missing:
         raise RuntimeError(
-            "Не удалось инициализировать базу данных SQLite."
-        ) from exc
+            "Не заданы параметры подключения: "
+            + ", ".join(missing)
+        )
+
+    return psycopg.connect(
+        host=os.getenv("PGHOST"),
+        port=os.getenv("PGPORT", "5432"),
+        dbname=os.getenv("PGDATABASE"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
+        row_factory=dict_row,
+    )
 
 
 def save_lead(lead: dict[str, Any]) -> None:
-    """Save one confirmed lead, preserving the existing function interface."""
+    """Сохранить пользователя и его заявку в одной транзакции."""
     required_fields = (
         "service",
         "name",
@@ -60,60 +54,96 @@ def save_lead(lead: dict[str, Any]) -> None:
         "user_id",
         "created_at",
     )
-    missing_fields = [field for field in required_fields if field not in lead]
-    if missing_fields:
+
+    missing = [
+        field
+        for field in required_fields
+        if field not in lead
+    ]
+
+    if missing:
         raise ValueError(
             "В заявке отсутствуют обязательные поля: "
-            + ", ".join(missing_fields)
+            + ", ".join(missing)
         )
 
-    # Ensure the schema exists before attempting the first insert.
-    init_db()
+    created_at = lead["created_at"]
 
-    values = (
-        lead["service"],
-        lead["name"],
-        lead["contact"],
-        lead["user_id"],
-        lead.get("telegram_username"),
-        lead["created_at"],
-    )
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at)
+
+    if not isinstance(created_at, datetime):
+        raise ValueError(
+            "created_at должен быть датой или ISO-строкой."
+        )
 
     try:
-        with closing(sqlite3.connect(DB_PATH)) as connection:
-            with connection:
-                connection.execute(INSERT_LEAD_SQL, values)
-    except sqlite3.Error as exc:
-        # Do not swallow the error. RuntimeError is caught by the current
-        # handlers/lead.py confirmation handler, with the SQLite error chained.
+        with connect_db() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO users (
+                        telegram_id,
+                        telegram_username
+                    )
+                    VALUES (%s, %s)
+                    ON CONFLICT (telegram_id)
+                    DO UPDATE SET
+                        telegram_username =
+                            EXCLUDED.telegram_username
+                    """,
+                    (
+                        lead["user_id"],
+                        lead.get("telegram_username"),
+                    ),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO leads (
+                        service,
+                        name,
+                        contact,
+                        user_id,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        lead["service"],
+                        lead["name"],
+                        lead["contact"],
+                        lead["user_id"],
+                        created_at,
+                    ),
+                )
+
+    except psycopg.Error as exc:
         raise RuntimeError(
-            "Не удалось сохранить заявку в базе данных SQLite."
+            "Не удалось сохранить заявку в PostgreSQL."
         ) from exc
 
 
 def get_leads() -> list[dict[str, Any]]:
-    """Получить сохранённые заявки из базы данных SQLite."""
-
-    # Если база ещё не создана, заявок пока нет.
-    if not DB_PATH.exists():
-        return []
-
+    """Получить заявки от новых к старым."""
     try:
-        with closing(sqlite3.connect(DB_PATH)) as connection:
-            # Возвращаем строки SQLite как объекты с доступом по именам полей.
-            connection.row_factory = sqlite3.Row
+        with connect_db() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        service,
+                        name,
+                        contact,
+                        created_at
+                    FROM leads
+                    ORDER BY created_at DESC, id DESC
+                    """
+                )
+                return cursor.fetchall()
 
-            rows = connection.execute(
-                """
-                SELECT id, service, name, contact, created_at
-                FROM leads
-                ORDER BY created_at DESC, id DESC
-                """
-            ).fetchall()
-
-        return [dict(row) for row in rows]
-
-    except sqlite3.Error as exc:
+    except psycopg.Error as exc:
         raise RuntimeError(
-            "Не удалось прочитать заявки из базы данных SQLite."
+            "Не удалось прочитать заявки из PostgreSQL."
         ) from exc

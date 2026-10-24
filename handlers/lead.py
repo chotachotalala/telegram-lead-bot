@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -62,7 +63,7 @@ async def cmd_leads(message: Message) -> None:
 
     # Читаем базу только после проверки прав доступа.
     try:
-        leads = get_leads()
+        leads = await asyncio.to_thread(get_leads)
     except RuntimeError:
         logger.exception(
             "Не удалось прочитать заявки из базы данных SQLite."
@@ -466,7 +467,7 @@ async def confirmation_handler(
     # Save the lead before notifying the administrator.
     try:
         config = load_config()
-        save_lead(lead)
+        await asyncio.to_thread(save_lead, lead)
     except (OSError, ValueError, RuntimeError, TypeError):
         logger.exception(
             "Не удалось сохранить заявку пользователя %s.",
