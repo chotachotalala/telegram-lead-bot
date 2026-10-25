@@ -66,7 +66,7 @@ async def cmd_leads(message: Message) -> None:
         leads = await asyncio.to_thread(get_leads)
     except RuntimeError:
         logger.exception(
-            "Не удалось прочитать заявки из базы данных SQLite."
+            "Не удалось прочитать заявки из базы данных PostgreSQL."
         )
         await message.answer(
             "Не удалось прочитать заявки из базы данных. "
@@ -450,8 +450,8 @@ async def confirmation_handler(
         else:
             contact_lines.append(f"Telegram ID: {user_id}")
 
-    # Сохраняем время создания заявки в UTC для базы данных SQLite.
-    # Store the lead creation time in UTC for the SQLite database.
+    # Сохраняем время создания заявки в UTC для PostgreSQL.
+    # Store the lead creation time in UTC for PostgreSQL.
     created_at = datetime.now(timezone.utc)
 
     lead = {
