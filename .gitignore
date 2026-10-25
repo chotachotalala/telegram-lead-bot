@@ -6,3 +6,4 @@ leads.db
 leads.db-shm
 leads.db-wal
 leads.db-journal
+backups/
